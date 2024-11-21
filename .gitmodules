@@ -1,0 +1,3 @@
+[submodule "TinyMPC"]
+	path = TinyMPC
+	url = https://github.com/RoboticExplorationLab/TinyMPC.git
