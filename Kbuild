@@ -1,1 +1,2 @@
-obj-y += TinyMPC/build/
+obj-y += src/
+obj-y += TinyMPC/src

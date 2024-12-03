@@ -164,9 +164,9 @@ static tiny_VectorNx current_state;
 static bool enable_traj = false;
 static int traj_index = 0;
 static int max_traj_index = 0;
-static int mpc_steps_taken = 0;
-static uint64_t startTimestamp;
-static uint32_t timestamp;
+// static int mpc_steps_taken = 0;
+// static uint32_t startTimestamp;
+// static uint32_t timestamp;
 static uint32_t mpc_start_timestamp;
 static uint32_t mpc_time_us;
 static struct vec phi; // For converting from the current state estimate's quaternion to Rodrigues parameters
