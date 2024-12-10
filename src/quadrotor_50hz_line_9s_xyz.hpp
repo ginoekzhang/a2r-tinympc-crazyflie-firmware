@@ -2,6 +2,9 @@
 
 #include <tinympc/types.hpp>
 
+#define NTOTAL 451
+#define NHORIZON 20
+
 tinytype Xref_data[NTOTAL*3] = {
   0.0000000,	-1.5000000,	1.0000000,	
   0.0000000,	-1.4933333,	1.0000000,	

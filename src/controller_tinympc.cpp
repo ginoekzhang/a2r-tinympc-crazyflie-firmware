@@ -135,30 +135,29 @@ control_t control_data;
 setpoint_t setpoint_data;
 sensorData_t sensors_data;
 state_t state_data;
-tiny_VectorNx mpc_setpoint;
+tinyVector mpc_setpoint;
 setpoint_t mpc_setpoint_pid;
 // Copies that stay constant for duration of MPC loop
 setpoint_t setpoint_task;
 sensorData_t sensors_task;
 state_t state_task;
 control_t control_task;
-tiny_VectorNx mpc_setpoint_task;
+tinyVector mpc_setpoint_task;
 
 /* Allocate global variables for MPC */
 // static tinytype u_hover[4] = {.65, .65, .65, .65};
 static tinytype u_hover[4] = {.583, .583, .583, .583};
-static struct tiny_cache cache;
-static struct tiny_params params;
-static struct tiny_problem problem;
-static tiny_MatrixNxNh problem_x;
+static TinyCache cache;
+static TinyWorkspace problem;
+static tinyMatrix problem_x;
 static float horizon_nh_z;
 static float init_vel_z;
 // static Eigen::Matrix<tinytype, NSTATES, NTOTAL, Eigen::ColMajor> Xref_total;
 static Eigen::Matrix<tinytype, 3, NTOTAL, Eigen::ColMajor> Xref_total;
 static Eigen::Matrix<tinytype, NSTATES, 1, Eigen::ColMajor> Xref_origin; // Start position for trajectory
 static Eigen::Matrix<tinytype, NSTATES, 1, Eigen::ColMajor> Xref_end; // End position for trajectory
-static tiny_VectorNu u_lqr;
-static tiny_VectorNx current_state;
+static tinyVector u_lqr;
+static tinyVector current_state;
 
 // Helper variables
 static bool enable_traj = false;
@@ -227,19 +226,19 @@ void appMain()
 
 static void resetProblem(void) {
   // Copy problem data
-  problem.x = tiny_MatrixNxNh::Zero();
-  problem.q = tiny_MatrixNxNh::Zero();
-  problem.p = tiny_MatrixNxNh::Zero();
-  problem.v = tiny_MatrixNxNh::Zero();
-  problem.vnew = tiny_MatrixNxNh::Zero();
-  problem.g = tiny_MatrixNxNh::Zero();
+  problem.x = tinyMatrix::Zero();
+  problem.q = tinyMatrix::Zero();
+  problem.p = tinyMatrix::Zero();
+  problem.v = tinyMatrix::Zero();
+  problem.vnew = tinyMatrix::Zero();
+  problem.g = tinyMatrix::Zero();
 
-  problem.u = tiny_MatrixNuNhm1::Zero();
-  problem.r = tiny_MatrixNuNhm1::Zero();
-  problem.d = tiny_MatrixNuNhm1::Zero();
-  problem.z = tiny_MatrixNuNhm1::Zero();
-  problem.znew = tiny_MatrixNuNhm1::Zero();
-  problem.y = tiny_MatrixNuNhm1::Zero();
+  problem.u = tinyMatrix::Zero();
+  problem.r = tinyMatrix::Zero();
+  problem.d = tinyMatrix::Zero();
+  problem.z = tinyMatrix::Zero();
+  problem.znew = tinyMatrix::Zero();
+  problem.y = tinyMatrix::Zero();
 }
 
 
@@ -249,18 +248,13 @@ void controllerOutOfTreeInit(void)
   controllerPidInit();
 
   // Copy cache data from problem_data/quadrotor*.hpp
-  cache.Adyn[0] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Adyn_unconstrained_data);
-  cache.Bdyn[0] = Eigen::Map<Matrix<tinytype, NSTATES, NINPUTS, Eigen::RowMajor>>(Bdyn_unconstrained_data);
-  cache.rho[0] = rho_unconstrained_value;
+  cache.rho = rho_unconstrained_value;
   cache.Kinf[0] = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_unconstrained_data);
   cache.Pinf[0] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_unconstrained_data);
   cache.Quu_inv[0] = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_unconstrained_data);
   cache.AmBKt[0] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_unconstrained_data);
-  cache.coeff_d2p[0] = Eigen::Map<Matrix<tinytype, NSTATES, NINPUTS, Eigen::RowMajor>>(coeff_d2p_unconstrained_data);
 
-  cache.Adyn[1] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Adyn_constrained_data);
-  cache.Bdyn[1] = Eigen::Map<Matrix<tinytype, NSTATES, NINPUTS, Eigen::RowMajor>>(Bdyn_constrained_data);
-  cache.rho[1] = rho_constrained_value;
+  cache.rho = rho_constrained_value;
   cache.Kinf[1] = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_constrained_data);
   cache.Pinf[1] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_constrained_data);
   cache.Quu_inv[1] = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_constrained_data);
@@ -268,23 +262,23 @@ void controllerOutOfTreeInit(void)
   cache.coeff_d2p[1] = Eigen::Map<Matrix<tinytype, NSTATES, NINPUTS, Eigen::RowMajor>>(coeff_d2p_constrained_data);
 
   // Copy parameter data
-  params.Q[0] = Eigen::Map<tiny_VectorNx>(Q_unconstrained_data);
-  params.Qf[0] = Eigen::Map<tiny_VectorNx>(Qf_unconstrained_data);
-  params.R[0] = Eigen::Map<tiny_VectorNu>(R_unconstrained_data);
-  params.Q[1] = Eigen::Map<tiny_VectorNx>(Q_constrained_data);
-  params.Qf[1] = Eigen::Map<tiny_VectorNx>(Qf_constrained_data);
-  params.R[1] = Eigen::Map<tiny_VectorNu>(R_constrained_data);
-  params.u_min = tiny_VectorNu(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
-  params.u_max = tiny_VectorNu(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
+  problem.Q[0] = Eigen::Map<tiny_VectorNx>(Q_unconstrained_data);
+  problem.Qf[0] = Eigen::Map<tiny_VectorNx>(Qf_unconstrained_data);
+  problem.R[0] = Eigen::Map<tiny_VectorNu>(R_unconstrained_data);
+  problem.Q[1] = Eigen::Map<tiny_VectorNx>(Q_constrained_data);
+  problem.Qf[1] = Eigen::Map<tiny_VectorNx>(Qf_constrained_data);
+  problem.R[1] = Eigen::Map<tiny_VectorNu>(R_constrained_data);
+  problem.u_min = tiny_VectorNu(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
+  problem.u_max = tiny_VectorNu(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
   for (int i = 0; i < NHORIZON; i++)
   {
-    params.x_min[i] = tiny_VectorNc::Constant(-1000); // Currently unused
-    params.x_max[i] = tiny_VectorNc::Constant(1000);
-    params.A_constraints[i] = tiny_MatrixNcNx::Zero();
+    problem.x_min[i] = tiny_VectorNc::Constant(-1000); // Currently unused
+    problem.x_max[i] = tiny_VectorNc::Constant(1000);
+    problem.A_constraints[i] = tiny_MatrixNcNx::Zero();
   }
-  params.Xref = tiny_MatrixNxNh::Zero();
-  params.Uref = tiny_MatrixNuNhm1::Zero();
-  params.cache = cache;
+  problem.Xref = tiny_MatrixNxNh::Zero();
+  problem.Uref = tiny_MatrixNuNhm1::Zero();
+  problem.cache = cache;
 
   // Initialize problem data to zero
   resetProblem();
@@ -333,11 +327,11 @@ static void UpdateHorizonReference(const setpoint_t *setpoint)
     if (traj_index < max_traj_index)
     {
       // params.Xref = Xref_total.block<NSTATES, NHORIZON>(0, traj_index);
-      params.Xref.block<3, NHORIZON>(0,0) = Xref_total.block<3, NHORIZON>(0, traj_index);
+      problem.Xref.block<3, NHORIZON>(0,0) = Xref_total.block<3, NHORIZON>(0, traj_index);
       traj_index++;
     }
     else if (traj_index >= max_traj_index) {
-      params.Xref = Xref_end.replicate<1, NHORIZON>();
+      problem.Xref = Xref_end.replicate<1, NHORIZON>();
     }
     else
     {
