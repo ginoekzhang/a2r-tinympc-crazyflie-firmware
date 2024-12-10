@@ -2,6 +2,9 @@
 
 #include <tinympc/types.hpp>
 
+#define NSTATES 12
+#define NINPUTS 4
+
 tinytype rho_unconstrained_value = 5.0;
 
 tinytype Adyn_unconstrained_data[NSTATES*NSTATES] = {
