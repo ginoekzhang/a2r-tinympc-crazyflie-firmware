@@ -148,14 +148,16 @@ tinyVector mpc_setpoint_task;
 // static tinytype u_hover[4] = {.65, .65, .65, .65};
 static tinytype u_hover[4] = {.583, .583, .583, .583};
 static TinyCache cache;
-static TinyWorkspace problem;
+static TinyWorkspace work;
+static TinySettings settings;
+static TinySolver solver;
 static tinyMatrix problem_x;
 static float horizon_nh_z;
 static float init_vel_z;
 // static Eigen::Matrix<tinytype, NSTATES, NTOTAL, Eigen::ColMajor> Xref_total;
 static Eigen::Matrix<tinytype, 3, NTOTAL, Eigen::ColMajor> Xref_total;
 static Eigen::Matrix<tinytype, NSTATES, 1, Eigen::ColMajor> Xref_origin; // Start position for trajectory
-static Eigen::Matrix<tinytype, NSTATES, 1, Eigen::ColMajor> Xref_end; // End position for trajectory
+static Eigen::Matrix<tinytype, NSTATES, 1, Eigen:: ColMajor> Xref_end; // End position for trajectory
 static tinyVector u_lqr;
 static tinyVector current_state;
 
@@ -226,19 +228,19 @@ void appMain()
 
 static void resetProblem(void) {
   // Copy problem data
-  problem.x = tinyMatrix::Zero();
-  problem.q = tinyMatrix::Zero();
-  problem.p = tinyMatrix::Zero();
-  problem.v = tinyMatrix::Zero();
-  problem.vnew = tinyMatrix::Zero();
-  problem.g = tinyMatrix::Zero();
+  work.x = tinyMatrix::Zero();
+  work.q = tinyMatrix::Zero();
+  work.p = tinyMatrix::Zero();
+  work.v = tinyMatrix::Zero();
+  work.vnew = tinyMatrix::Zero();
+  work.g = tinyMatrix::Zero();
 
-  problem.u = tinyMatrix::Zero();
-  problem.r = tinyMatrix::Zero();
-  problem.d = tinyMatrix::Zero();
-  problem.z = tinyMatrix::Zero();
-  problem.znew = tinyMatrix::Zero();
-  problem.y = tinyMatrix::Zero();
+  work.u = tinyMatrix::Zero();
+  work.r = tinyMatrix::Zero();
+  work.d = tinyMatrix::Zero();
+  work.z = tinyMatrix::Zero();
+  work.znew = tinyMatrix::Zero();
+  work.y = tinyMatrix::Zero();
 }
 
 
@@ -247,52 +249,44 @@ void controllerOutOfTreeInit(void)
 
   controllerPidInit();
 
+  solver.work = &work;
+  solver.cache = &cache;
+  solver.settings = &settings;
+
   // Copy cache data from problem_data/quadrotor*.hpp
   cache.rho = rho_unconstrained_value;
-  cache.Kinf[0] = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_unconstrained_data);
-  cache.Pinf[0] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_unconstrained_data);
-  cache.Quu_inv[0] = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_unconstrained_data);
-  cache.AmBKt[0] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_unconstrained_data);
+  cache.Kinf = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_constrained_data);
+  cache.Pinf = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_constrained_data);
+  cache.Quu_inv = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_constrained_data);
+  cache.AmBKt = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_constrained_data);
 
-  cache.rho = rho_constrained_value;
-  cache.Kinf[1] = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_constrained_data);
-  cache.Pinf[1] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_constrained_data);
-  cache.Quu_inv[1] = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_constrained_data);
-  cache.AmBKt[1] = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_constrained_data);
-  cache.coeff_d2p[1] = Eigen::Map<Matrix<tinytype, NSTATES, NINPUTS, Eigen::RowMajor>>(coeff_d2p_constrained_data);
-
-  // Copy parameter data
-  problem.Q[0] = Eigen::Map<tiny_VectorNx>(Q_unconstrained_data);
-  problem.Qf[0] = Eigen::Map<tiny_VectorNx>(Qf_unconstrained_data);
-  problem.R[0] = Eigen::Map<tiny_VectorNu>(R_unconstrained_data);
-  problem.Q[1] = Eigen::Map<tiny_VectorNx>(Q_constrained_data);
-  problem.Qf[1] = Eigen::Map<tiny_VectorNx>(Qf_constrained_data);
-  problem.R[1] = Eigen::Map<tiny_VectorNu>(R_constrained_data);
-  problem.u_min = tiny_VectorNu(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
-  problem.u_max = tiny_VectorNu(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
+  // Copy/set workspace data
+  work.nx = NSTATES;
+  work.nu = NINPUTS;
+  work.N  = NHORIZON;
+  work.Q = Eigen::Map<tinyVector>(Q_constrained_data);
+  work.R = Eigen::Map<tinyVector>(R_constrained_data);
+  work.u_min = tinyVector(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
+  work.u_max = tinyVector(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
+  
   for (int i = 0; i < NHORIZON; i++)
   {
-    problem.x_min[i] = tiny_VectorNc::Constant(-1000); // Currently unused
-    problem.x_max[i] = tiny_VectorNc::Constant(1000);
-    problem.A_constraints[i] = tiny_MatrixNcNx::Zero();
+    work.x_min[i] = -1000; // Fill with -1000
+    work.x_max[i] = 1000;  // Fill with 1000
   }
-  problem.Xref = tiny_MatrixNxNh::Zero();
-  problem.Uref = tiny_MatrixNuNhm1::Zero();
-  problem.cache = cache;
+
+  work.Xref = tinyMatrix::Zero();
+  work.Uref = tinyMatrix::Zero();
 
   // Initialize problem data to zero
   resetProblem();
 
-  problem.primal_residual_state = 0;
-  problem.primal_residual_input = 0;
-  problem.dual_residual_state = 0;
-  problem.dual_residual_input = 0;
-  problem.abs_tol = 0.001;
-  problem.status = 0;
-  problem.iter = 0;
-  problem.max_iter = 5;
-  problem.iters_check_rho_update = 10;
-  problem.cache_level = 0; // 0 to use rho corresponding to inactive constraints (1 to use rho corresponding to active constraints)
+  work.primal_residual_state = 0;
+  work.primal_residual_input = 0;
+  work.dual_residual_state = 0;
+  work.dual_residual_input = 0;
+  work.status = 0;
+  work.iter = 0;
 
   // // Copy reference trajectory into Eigen matrix
   // Xref_total = Eigen::Map<Matrix<tinytype, NTOTAL, NSTATES, Eigen::RowMajor>>(Xref_data).transpose();
@@ -302,7 +296,7 @@ void controllerOutOfTreeInit(void)
   // Xref_origin << Xref_total.col(0), 0, 0, 0, 0, 0, 0, 0, 0, 0; // Go to xyz start of traj
   // Xref_end << Xref_total.col(NTOTAL-1).head(3), 0, 0, 0, 0, 0, 0, 0, 0, 0; // Go to xyz start of traj
   Xref_origin << 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0; // Always go to 0, 0, 1 (comment out enable_traj = true check in main loop)
-  params.Xref = Xref_origin.replicate<1, NHORIZON>();
+
 
   enable_traj = false;
   traj_index = 0;
@@ -327,11 +321,11 @@ static void UpdateHorizonReference(const setpoint_t *setpoint)
     if (traj_index < max_traj_index)
     {
       // params.Xref = Xref_total.block<NSTATES, NHORIZON>(0, traj_index);
-      problem.Xref.block<3, NHORIZON>(0,0) = Xref_total.block<3, NHORIZON>(0, traj_index);
+      work.Xref.block<3, NHORIZON>(0,0) = Xref_total.block<3, NHORIZON>(0, traj_index);
       traj_index++;
     }
     else if (traj_index >= max_traj_index) {
-      problem.Xref = Xref_end.replicate<1, NHORIZON>();
+      work.Xref = Xref_end.replicate<1, NHORIZON>();
     }
     else
     {
@@ -340,7 +334,7 @@ static void UpdateHorizonReference(const setpoint_t *setpoint)
   }
   else
   {
-    params.Xref = Xref_origin.replicate<1, NHORIZON>();
+    work.Xref = Xref_origin.replicate<1, NHORIZON>();
   }
 }
 
@@ -385,11 +379,6 @@ static void tinympcControllerTask(void *parameters)
         traj_index++;
       }
 
-      if (problem.cache_level == 0) {
-        problem.y = tiny_MatrixNuNhm1::Zero();
-        problem.g = tiny_MatrixNxNh::Zero();
-      }
-
       // TODO: predict into the future and set initial x to wherever we think we'll be
       //    by the time we're done computing the input for that state. If we just set
       //    initial x to current state then by the time we compute the optimal input for
@@ -397,7 +386,7 @@ static void tinympcControllerTask(void *parameters)
       //    in the input we're using for our current state.
       // Set initial x to current state
       phi = quat_2_rp(normalize_quat(state_task.attitudeQuaternion)); // quaternion to Rodrigues parameters
-      problem.x.col(0) << state_task.position.x, state_task.position.y, state_task.position.z,
+      work.x.col(0) << state_task.position.x, state_task.position.y, state_task.position.z,
           phi.x, phi.y, phi.z,
           state_task.velocity.x, state_task.velocity.y, state_task.velocity.z,
           radians(sensors_task.gyro.x), radians(sensors_task.gyro.y), radians(sensors_task.gyro.z);
@@ -437,7 +426,7 @@ static void tinympcControllerTask(void *parameters)
         obs_offset << 0, 0, 0;
       }
       else {
-        obs_offset = (problem.x.col(0).head(3) - obs_center).norm() * obs_velocity.normalized();
+        obs_offset = (work.x.col(0).head(3) - obs_center).norm() * obs_velocity.normalized();
       }
 
       // When avoiding dynamic obstacle
@@ -445,12 +434,12 @@ static void tinympcControllerTask(void *parameters)
       {
         // obs_predicted_center = obs_center + (obs_velocity/50 * i) * obs_velocity_scale + (problem.x.col(0).head(3) - obs_center).norm() * obs_velocity.normalized() * use_obs_offset;
         // obs_predicted_center = obs_center + (obs_velocity/50 * i) * obs_velocity_scale + (problem.x.col(0).head(3) - obs_center).norm() * obs_velocity.normalized();
-        obs_predicted_center = obs_center +  obs_offset + (obs_velocity/50 * i);
-        xc = obs_predicted_center - problem.x.col(i).head(3);
-        a_norm = xc / xc.norm();
-        params.A_constraints[i].head(3) = a_norm.transpose();
-        q_c = obs_center - r_obs * a_norm;
-        params.x_max[i](0) = a_norm.transpose() * q_c;
+        // obs_predicted_center = obs_center +  obs_offset + (obs_velocity/50 * i);
+        // xc = obs_predicted_center - problem.x.col(i).head(3);
+        // a_norm = xc / xc.norm();
+        // problem.A_constraints[i].head(3) = a_norm.transpose();
+        // q_c = obs_center - r_obs * a_norm;
+        // problem.x_max[i](0) = a_norm.transpose() * q_c;
       }
 
 
@@ -478,86 +467,85 @@ static void tinympcControllerTask(void *parameters)
       // }
 
       // MPC solve
-      problem.iter = 0;
+      work.iter = 0;
 
       mpc_start_timestamp = usecTimestamp();
-      solve_admm(&problem, &params);
+      tiny_solve(&solver);
       vTaskDelay(M2T(1));
-      solve_admm(&problem, &params);
+      tiny_solve(&solver);
       mpc_time_us = usecTimestamp() - mpc_start_timestamp - 1000; // -1000 for each vTaskDelay(M2T(1))
 
-      mpc_setpoint_task = problem.x.col(NHORIZON-1);
+      mpc_setpoint_task = work.x.col(NHORIZON-1);
 
-      eventTrigger_horizon_x_part1_payload.h0 = problem.x.col(0)(0);
-      eventTrigger_horizon_x_part1_payload.h1 = problem.x.col(1)(0);
-      eventTrigger_horizon_x_part1_payload.h2 = problem.x.col(2)(0);
-      eventTrigger_horizon_x_part1_payload.h3 = problem.x.col(3)(0);
-      eventTrigger_horizon_x_part1_payload.h4 = problem.x.col(4)(0);
-      eventTrigger_horizon_x_part2_payload.h5 = problem.x.col(5)(0);
-      eventTrigger_horizon_x_part2_payload.h6 = problem.x.col(6)(0);
-      eventTrigger_horizon_x_part2_payload.h7 = problem.x.col(7)(0);
-      eventTrigger_horizon_x_part2_payload.h8 = problem.x.col(8)(0);
-      eventTrigger_horizon_x_part2_payload.h9 = problem.x.col(9)(0);
-      eventTrigger_horizon_x_part3_payload.h10 = problem.x.col(10)(0);
-      eventTrigger_horizon_x_part3_payload.h11 = problem.x.col(11)(0);
-      eventTrigger_horizon_x_part3_payload.h12 = problem.x.col(12)(0);
-      eventTrigger_horizon_x_part3_payload.h13 = problem.x.col(13)(0);
-      eventTrigger_horizon_x_part3_payload.h14 = problem.x.col(14)(0);
-      eventTrigger_horizon_x_part4_payload.h15 = problem.x.col(15)(0);
-      eventTrigger_horizon_x_part4_payload.h16 = problem.x.col(16)(0);
-      eventTrigger_horizon_x_part4_payload.h17 = problem.x.col(17)(0);
-      eventTrigger_horizon_x_part4_payload.h18 = problem.x.col(18)(0);
-      eventTrigger_horizon_x_part4_payload.h19 = problem.x.col(19)(0);
+      eventTrigger_horizon_x_part1_payload.h0 = work.x.col(0)(0);
+      eventTrigger_horizon_x_part1_payload.h1 = work.x.col(1)(0);
+      eventTrigger_horizon_x_part1_payload.h2 = work.x.col(2)(0);
+      eventTrigger_horizon_x_part1_payload.h3 = work.x.col(3)(0);
+      eventTrigger_horizon_x_part1_payload.h4 = work.x.col(4)(0);
+      eventTrigger_horizon_x_part2_payload.h5 = work.x.col(5)(0);
+      eventTrigger_horizon_x_part2_payload.h6 = work.x.col(6)(0);
+      eventTrigger_horizon_x_part2_payload.h7 = work.x.col(7)(0);
+      eventTrigger_horizon_x_part2_payload.h8 = work.x.col(8)(0);
+      eventTrigger_horizon_x_part2_payload.h9 = work.x.col(9)(0);
+      eventTrigger_horizon_x_part3_payload.h10 = work.x.col(10)(0);
+      eventTrigger_horizon_x_part3_payload.h11 = work.x.col(11)(0);
+      eventTrigger_horizon_x_part3_payload.h12 = work.x.col(12)(0);
+      eventTrigger_horizon_x_part3_payload.h13 = work.x.col(13)(0);
+      eventTrigger_horizon_x_part3_payload.h14 = work.x.col(14)(0);
+      eventTrigger_horizon_x_part4_payload.h15 = work.x.col(15)(0);
+      eventTrigger_horizon_x_part4_payload.h16 = work.x.col(16)(0);
+      eventTrigger_horizon_x_part4_payload.h17 = work.x.col(17)(0);
+      eventTrigger_horizon_x_part4_payload.h18 = work.x.col(18)(0);
+      eventTrigger_horizon_x_part4_payload.h19 = work.x.col(19)(0);
 
-      eventTrigger_horizon_y_part1_payload.h0 = problem.x.col(0)(1);
-      eventTrigger_horizon_y_part1_payload.h1 = problem.x.col(1)(1);
-      eventTrigger_horizon_y_part1_payload.h2 = problem.x.col(2)(1);
-      eventTrigger_horizon_y_part1_payload.h3 = problem.x.col(3)(1);
-      eventTrigger_horizon_y_part1_payload.h4 = problem.x.col(4)(1);
-      eventTrigger_horizon_y_part2_payload.h5 = problem.x.col(5)(1);
-      eventTrigger_horizon_y_part2_payload.h6 = problem.x.col(6)(1);
-      eventTrigger_horizon_y_part2_payload.h7 = problem.x.col(7)(1);
-      eventTrigger_horizon_y_part2_payload.h8 = problem.x.col(8)(1);
-      eventTrigger_horizon_y_part2_payload.h9 = problem.x.col(9)(1);
-      eventTrigger_horizon_y_part3_payload.h10 = problem.x.col(10)(1);
-      eventTrigger_horizon_y_part3_payload.h11 = problem.x.col(11)(1);
-      eventTrigger_horizon_y_part3_payload.h12 = problem.x.col(12)(1);
-      eventTrigger_horizon_y_part3_payload.h13 = problem.x.col(13)(1);
-      eventTrigger_horizon_y_part3_payload.h14 = problem.x.col(14)(1);
-      eventTrigger_horizon_y_part4_payload.h15 = problem.x.col(15)(1);
-      eventTrigger_horizon_y_part4_payload.h16 = problem.x.col(16)(1);
-      eventTrigger_horizon_y_part4_payload.h17 = problem.x.col(17)(1);
-      eventTrigger_horizon_y_part4_payload.h18 = problem.x.col(18)(1);
-      eventTrigger_horizon_y_part4_payload.h19 = problem.x.col(19)(1);
+      eventTrigger_horizon_y_part1_payload.h0 = work.x.col(0)(1);
+      eventTrigger_horizon_y_part1_payload.h1 = work.x.col(1)(1);
+      eventTrigger_horizon_y_part1_payload.h2 = work.x.col(2)(1);
+      eventTrigger_horizon_y_part1_payload.h3 = work.x.col(3)(1);
+      eventTrigger_horizon_y_part1_payload.h4 = work.x.col(4)(1);
+      eventTrigger_horizon_y_part2_payload.h5 = work.x.col(5)(1);
+      eventTrigger_horizon_y_part2_payload.h6 = work.x.col(6)(1);
+      eventTrigger_horizon_y_part2_payload.h7 = work.x.col(7)(1);
+      eventTrigger_horizon_y_part2_payload.h8 = work.x.col(8)(1);
+      eventTrigger_horizon_y_part2_payload.h9 = work.x.col(9)(1);
+      eventTrigger_horizon_y_part3_payload.h10 = work.x.col(10)(1);
+      eventTrigger_horizon_y_part3_payload.h11 = work.x.col(11)(1);
+      eventTrigger_horizon_y_part3_payload.h12 = work.x.col(12)(1);
+      eventTrigger_horizon_y_part3_payload.h13 = work.x.col(13)(1);
+      eventTrigger_horizon_y_part3_payload.h14 = work.x.col(14)(1);
+      eventTrigger_horizon_y_part4_payload.h15 = work.x.col(15)(1);
+      eventTrigger_horizon_y_part4_payload.h16 = work.x.col(16)(1);
+      eventTrigger_horizon_y_part4_payload.h17 = work.x.col(17)(1);
+      eventTrigger_horizon_y_part4_payload.h18 = work.x.col(18)(1);
+      eventTrigger_horizon_y_part4_payload.h19 = work.x.col(19)(1);
 
-      eventTrigger_horizon_z_part1_payload.h0 = problem.x.col(0)(2);
-      eventTrigger_horizon_z_part1_payload.h1 = problem.x.col(1)(2);
-      eventTrigger_horizon_z_part1_payload.h2 = problem.x.col(2)(2);
-      eventTrigger_horizon_z_part1_payload.h3 = problem.x.col(3)(2);
-      eventTrigger_horizon_z_part1_payload.h4 = problem.x.col(4)(2);
-      eventTrigger_horizon_z_part2_payload.h5 = problem.x.col(5)(2);
-      eventTrigger_horizon_z_part2_payload.h6 = problem.x.col(6)(2);
-      eventTrigger_horizon_z_part2_payload.h7 = problem.x.col(7)(2);
-      eventTrigger_horizon_z_part2_payload.h8 = problem.x.col(8)(2);
-      eventTrigger_horizon_z_part2_payload.h9 = problem.x.col(9)(2);
-      eventTrigger_horizon_z_part3_payload.h10 = problem.x.col(10)(2);
-      eventTrigger_horizon_z_part3_payload.h11 = problem.x.col(11)(2);
-      eventTrigger_horizon_z_part3_payload.h12 = problem.x.col(12)(2);
-      eventTrigger_horizon_z_part3_payload.h13 = problem.x.col(13)(2);
-      eventTrigger_horizon_z_part3_payload.h14 = problem.x.col(14)(2);
-      eventTrigger_horizon_z_part4_payload.h15 = problem.x.col(15)(2);
-      eventTrigger_horizon_z_part4_payload.h16 = problem.x.col(16)(2);
-      eventTrigger_horizon_z_part4_payload.h17 = problem.x.col(17)(2);
-      eventTrigger_horizon_z_part4_payload.h18 = problem.x.col(18)(2);
-      eventTrigger_horizon_z_part4_payload.h19 = problem.x.col(19)(2);
+      eventTrigger_horizon_z_part1_payload.h0 = work.x.col(0)(2);
+      eventTrigger_horizon_z_part1_payload.h1 = work.x.col(1)(2);
+      eventTrigger_horizon_z_part1_payload.h2 = work.x.col(2)(2);
+      eventTrigger_horizon_z_part1_payload.h3 = work.x.col(3)(2);
+      eventTrigger_horizon_z_part1_payload.h4 = work.x.col(4)(2);
+      eventTrigger_horizon_z_part2_payload.h5 = work.x.col(5)(2);
+      eventTrigger_horizon_z_part2_payload.h6 = work.x.col(6)(2);
+      eventTrigger_horizon_z_part2_payload.h7 = work.x.col(7)(2);
+      eventTrigger_horizon_z_part2_payload.h8 = work.x.col(8)(2);
+      eventTrigger_horizon_z_part2_payload.h9 = work.x.col(9)(2);
+      eventTrigger_horizon_z_part3_payload.h10 = work.x.col(10)(2);
+      eventTrigger_horizon_z_part3_payload.h11 = work.x.col(11)(2);
+      eventTrigger_horizon_z_part3_payload.h12 = work.x.col(12)(2);
+      eventTrigger_horizon_z_part3_payload.h13 = work.x.col(13)(2);
+      eventTrigger_horizon_z_part3_payload.h14 = work.x.col(14)(2);
+      eventTrigger_horizon_z_part4_payload.h15 = work.x.col(15)(2);
+      eventTrigger_horizon_z_part4_payload.h16 = work.x.col(16)(2);
+      eventTrigger_horizon_z_part4_payload.h17 = work.x.col(17)(2);
+      eventTrigger_horizon_z_part4_payload.h18 = work.x.col(18)(2);
+      eventTrigger_horizon_z_part4_payload.h19 = work.x.col(19)(2);
 
       eventTrigger_problem_data_event_payload.solvetime_us = mpc_time_us;
-      eventTrigger_problem_data_event_payload.iters = problem.iter;
-      eventTrigger_problem_data_event_payload.cache_level = problem.cache_level;
-      eventTrigger_problem_residuals_event_payload.prim_resid_state = problem.primal_residual_state;
-      eventTrigger_problem_residuals_event_payload.prim_resid_input = problem.primal_residual_input;
-      eventTrigger_problem_residuals_event_payload.dual_resid_state = problem.dual_residual_state;
-      eventTrigger_problem_residuals_event_payload.dual_resid_input = problem.dual_residual_input;
+      eventTrigger_problem_data_event_payload.iters = work.iter;
+      eventTrigger_problem_residuals_event_payload.prim_resid_state = work.primal_residual_state;
+      eventTrigger_problem_residuals_event_payload.prim_resid_input = work.primal_residual_input;
+      eventTrigger_problem_residuals_event_payload.dual_resid_state = work.dual_residual_state;
+      eventTrigger_problem_residuals_event_payload.dual_resid_input = work.dual_residual_input;
 
       eventTrigger(&eventTrigger_horizon_x_part1);
       eventTrigger(&eventTrigger_horizon_x_part2);
@@ -576,8 +564,8 @@ static void tinympcControllerTask(void *parameters)
 
       // Copy the setpoint calculated by the task loop to the global mpc_setpoint
       xSemaphoreTake(dataMutex, portMAX_DELAY);
-      memcpy(&mpc_setpoint, &mpc_setpoint_task, sizeof(tiny_VectorNx));
-      memcpy(&init_vel_z, &problem.x.col(0)(8), sizeof(float));
+      memcpy(&mpc_setpoint, &mpc_setpoint_task, sizeof(tinyVector));
+      memcpy(&init_vel_z, &work.x.col(0)(8), sizeof(float));
       xSemaphoreGive(dataMutex);
     }
   }
