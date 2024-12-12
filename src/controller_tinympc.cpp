@@ -101,7 +101,7 @@ static StaticSemaphore_t dataMutexBuffer;
 
 static void tinympcControllerTask(void *parameters);
 
-STATIC_MEM_TASK_ALLOC(tinympcControllerTask, TINYMPC_TASK_STACKSIZE);
+STATIC_MEM_TASK_ALLOC(tinympcControllerTask, SYSTEM_TASK_STACKSIZE);
 
 // // declares eventTrigger_[name] and eventTrigger_[name]_payload
 // EVENTTRIGGER(horizon_part1, float, h0, float, h1, float, h2, float, h3, float, h4);
@@ -166,7 +166,7 @@ static bool enable_traj = false;
 static int traj_index = 0;
 static int max_traj_index = 0;
 // static int mpc_steps_taken = 0;
-// static uint32_t startTimestamp;
+static uint32_t startTimestamp;
 // static uint32_t timestamp;
 static uint32_t mpc_start_timestamp;
 static uint32_t mpc_time_us;
@@ -228,19 +228,19 @@ void appMain()
 
 static void resetProblem(void) {
   // Copy problem data
-  work.x = tinyMatrix::Zero();
-  work.q = tinyMatrix::Zero();
-  work.p = tinyMatrix::Zero();
-  work.v = tinyMatrix::Zero();
-  work.vnew = tinyMatrix::Zero();
-  work.g = tinyMatrix::Zero();
+  work.x = tinyMatrix::Zero(NTOTAL, NHORIZON);
+  work.q = tinyMatrix::Zero(NTOTAL, NHORIZON);
+  work.p = tinyMatrix::Zero(NTOTAL, NHORIZON);
+  work.v = tinyMatrix::Zero(NTOTAL, NHORIZON);
+  work.vnew = tinyMatrix::Zero(NTOTAL, NHORIZON);
+  work.g = tinyMatrix::Zero(NTOTAL, NHORIZON);
 
-  work.u = tinyMatrix::Zero();
-  work.r = tinyMatrix::Zero();
-  work.d = tinyMatrix::Zero();
-  work.z = tinyMatrix::Zero();
-  work.znew = tinyMatrix::Zero();
-  work.y = tinyMatrix::Zero();
+  work.u = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
+  work.r = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
+  work.d = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
+  work.z = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
+  work.znew = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
+  work.y = tinyMatrix::Zero(NINPUTS, NHORIZON-1);
 }
 
 
@@ -255,28 +255,37 @@ void controllerOutOfTreeInit(void)
 
   // Copy cache data from problem_data/quadrotor*.hpp
   cache.rho = rho_unconstrained_value;
-  cache.Kinf = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_constrained_data);
-  cache.Pinf = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_constrained_data);
-  cache.Quu_inv = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_constrained_data);
-  cache.AmBKt = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_constrained_data);
+  cache.Kinf = Eigen::Map<Matrix<tinytype, NINPUTS, NSTATES, Eigen::RowMajor>>(Kinf_constrained_data, NINPUTS, NSTATES);
+  cache.Pinf = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(Pinf_constrained_data, NSTATES, NSTATES);
+  cache.Quu_inv = Eigen::Map<Matrix<tinytype, NINPUTS, NINPUTS, Eigen::RowMajor>>(Quu_inv_constrained_data, NINPUTS, NINPUTS);
+  cache.AmBKt = Eigen::Map<Matrix<tinytype, NSTATES, NSTATES, Eigen::RowMajor>>(AmBKt_constrained_data, NSTATES, NSTATES);
 
   // Copy/set workspace data
   work.nx = NSTATES;
   work.nu = NINPUTS;
   work.N  = NHORIZON;
-  work.Q = Eigen::Map<tinyVector>(Q_constrained_data);
-  work.R = Eigen::Map<tinyVector>(R_constrained_data);
-  work.u_min = tinyVector(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
-  work.u_max = tinyVector(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
+  work.Q = Eigen::Map<tinyVector>(Q_constrained_data, NSTATES, 1);
+  work.R = Eigen::Map<tinyVector>(R_constrained_data, NINPUTS, 1);
+
+  tinyVector vec(4, 1);
+  vec << -u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3];
+  work.u_min = vec.replicate(1, NHORIZON - 1);
+
+  tinyVector vec1(4, 1);
+  vec1 << 1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3];
+  work.u_max = vec1.replicate(1, NHORIZON - 1);
+
+  // work.u_min = tinyVector(-u_hover[0], -u_hover[1], -u_hover[2], -u_hover[3]).replicate<1, NHORIZON - 1>();
+  // work.u_max = tinyVector(1 - u_hover[0], 1 - u_hover[1], 1 - u_hover[2], 1 - u_hover[3]).replicate<1, NHORIZON - 1>();
   
   for (int i = 0; i < NHORIZON; i++)
   {
-    work.x_min[i] = -1000; // Fill with -1000
-    work.x_max[i] = 1000;  // Fill with 1000
+    work.x_min(i) = -1000; // Fill with -1000
+    work.x_max(i) = 1000;  // Fill with 1000
   }
 
-  work.Xref = tinyMatrix::Zero();
-  work.Uref = tinyMatrix::Zero();
+  work.Xref = tinyMatrix::Zero(NSTATES, NHORIZON);
+  work.Uref = tinyMatrix::Zero(NINPUTS, NHORIZON);
 
   // Initialize problem data to zero
   resetProblem();
@@ -308,7 +317,7 @@ void controllerOutOfTreeInit(void)
 
   dataMutex = xSemaphoreCreateMutexStatic(&dataMutexBuffer);
 
-  STATIC_MEM_TASK_CREATE(tinympcControllerTask, tinympcControllerTask, TINYMPC_TASK_NAME, NULL, TINYMPC_TASK_PRI);
+  STATIC_MEM_TASK_CREATE(tinympcControllerTask, tinympcControllerTask, SYSTEM_TASK_NAME, NULL, SYSTEM_TASK_PRI);
 
   isInit = true;
   /* End of task initialization */
