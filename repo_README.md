@@ -49,7 +49,7 @@ To fetch the latest Crazyflie firmware updates without affecting the control alg
 - Investigate real-time parameter tuning to further reduce control algorithm modifications.
 
 ## Acknowledgments
-- **Crazyflie**
+- **Crazyflie (Bitcraze)**
 - **TinyMPC**
 - **The Barnard Accessible and Accelerated Robotics Lab**
 
